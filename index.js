@@ -25,7 +25,7 @@ const uri = "mongodb+srv://ishanrana950:Xi9Qot1VD3BjGk31@cluster0.5xmvgk6.mongod
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
-        strict: true,
+        // strict: true,
         deprecationErrors: true,
     }
 });
@@ -41,30 +41,48 @@ async function run() {
         const orderCollection = database.collection("order")
 
 
-        await userCollection.createIndex({email:1},{unique:true});
-        await productCollection.createIndex({category:1});
-        await orderCollection.createIndex({orderDate:-1});
-        await orderCollection.createIndex({userId:1});
-        await userCollection.createIndex({lastLogin:-1});
-        await productCollection.createIndex({stock:1});
+        // await userCollection.createIndex({ email: 1 }, { unique: true });
+        await productCollection.createIndex({ category: 1 });
+        await orderCollection.createIndex({ orderDate: -1 });
+        await orderCollection.createIndex({ userId: 1 });
+        await userCollection.createIndex({ lastLogin: -1 });
+        await productCollection.createIndex({ stock: 1 });
 
-        app.get("/api/v1/dashboard/analytics",async(req,res)=>{
+        app.get("/api/v1/dashboard/analytics", async (req, res) => {
             try {
                 const catcheAnalytics = myCache.get("dashboardDataCatche");
-                if(catcheAnalytics){
+                if (catcheAnalytics) {
                     return res.json(catcheAnalytics)
-                }else{
+                } else {
 
                 }
-                const [activeUser] = await Promise.all([
-                    userCollection.countDocuments()
+                const [activeUser, totalRevinew] = await Promise.all([
+                    userCollection.countDocuments(),
+                    orderCollection.aggregate(
+                        [
+                            {
+                                $group: {
+                                    _id: null,
+                                    totalRevinu: {
+                                        $sum: "$totalAmount"
+                                    },
+                                    totalOrder: {
+                                        $sum: 1
+                                    }
+                                }
+                            }
+                        ]
+                    ).toArray()
+
                 ]);
                 const analyticsData = {
-                    activeUser
+                    activeUser,
+                    totalRevinew
                 };
-                myCache.set("dashboardDataCatche",analyticsData, 600 )
+                myCache.set("dashboardDataCatche", analyticsData, 600);
+                return res.json(analyticsData)
             } catch (error) {
-                
+                console.log(error)
             }
         })
 
