@@ -56,7 +56,7 @@ async function run() {
                 } else {
 
                 }
-                const [activeUser, totalRevinew] = await Promise.all([
+                const [activeUser, totalRevinew, monthlyRevinew, totalProduct, inventoryMertics] = await Promise.all([
                     userCollection.countDocuments(),
                     orderCollection.aggregate(
                         [
@@ -72,12 +72,196 @@ async function run() {
                                 }
                             }
                         ]
-                    ).toArray()
+                    ).toArray(),
+                    orderCollection.aggregate([
+                        {
+                            $group: {
+                                _id: {
+                                    year: {
+                                        $year: "$orderDate"
+                                    },
+                                    month: {
+                                        $month: "$orderDate"
+                                    }
+                                },
+                                totalAmount: {
+                                    $sum: "$totalAmount"
+                                },
+                                monthlyOrder: {
+                                    $sum: 1
+                                }
+                            }
+                        },
+                        {
+                            $project:
+                            /**
+                             * specifications: The fields to
+                             *   include or exclude.
+                             */
+                            {
+                                _id: 0,
+                                year: "$_id.year",
+                                month: "$_id.month",
+                                totalAmount: 1,
+                                monthlyOrder: 1
+                            }
+                        },
+                        {
+                            $sort:
+                            /**
+                             * Provide any number of field/order pairs.
+                             */
+                            {
+                                monthlyOrder: 1,
+                                year: 1,
+                                month: 1
+                            }
+                        }
+                    ]).toArray(),
+                    productCollection.countDocuments(),
+                    // inventory analytics
+
+                    productCollection.aggregate(
+                        [
+                            {
+                                $group: {
+                                    _id: null,
+                                    totalProductStock: {
+                                        $sum: "$stock"
+                                    },
+                                    avgProductStock: {
+                                        $avg: "$stock"
+                                    },
+                                    lowStock: {
+                                        $sum: {
+                                            $cond: [
+                                                {
+                                                    $lt: ["$stock", 10]
+                                                },
+                                                1,
+                                                0
+                                            ]
+                                        }
+                                    },
+                                    outOfStock: {
+                                        $sum: {
+                                            $cond: [
+                                                {
+                                                    $eq: ["$stock", 0]
+                                                },
+                                                1,
+                                                0
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    ).toArray(),
+
+                    // order segment 
+
+                    [
+                        {
+                            $group:
+                            /**
+                             * _id: The id of the group.
+                             * fieldN: The first field name.
+                             */
+                            {
+                                _id: "$userId",
+                                totalSpent: {
+                                    $sum: "$totalAmount"
+                                },
+                                avgSpent: {
+                                    $avg: "$totalAmount"
+                                },
+                                orderCount: {
+                                    $sum: 1
+                                },
+                                lastPurchaseDate: {
+                                    $max: "$orderDate"
+                                }
+                            }
+                        },
+                        {
+                            $addFields: {
+                                daySinceLastPurchase: {
+                                    $divide: [
+                                        {
+                                            $subtract: [
+                                                new Date(),
+                                                "$lastPurchaseDate"
+                                            ]
+                                        },
+                                        1000 * 60 * 60 * 24
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            $addFields:
+                            
+                            {
+                                segment: {
+                                    $switch: {
+                                        branches: [
+                                            {
+                                                case: {
+                                                    $and: [
+                                                        {
+                                                            $gt: ["$totalAmount", 1000]
+                                                        },
+                                                        {
+                                                            $lt: [
+                                                                "$daySinceLastPurchase",
+                                                                7
+                                                            ]
+                                                        }
+                                                    ]
+                                                },
+                                                then: "vip user"
+                                            },
+                                            {
+                                                case: {
+                                                    $lt: [
+                                                        "$daySinceLastPurchase",
+                                                        7
+                                                    ]
+                                                },
+                                                then: "Regular user"
+                                            },
+                                            {
+                                                case: {
+                                                    $lt: [
+                                                        "$daySinceLastPurchase",
+                                                        30
+                                                    ]
+                                                },
+                                                then: "Active user"
+                                            }
+                                        ],
+                                        default: "At risk"
+                                    }
+                                }
+                            }
+                        }
+                    ].toArray()
+
+
+
+
+
+
+
 
                 ]);
                 const analyticsData = {
                     activeUser,
-                    totalRevinew
+                    totalRevinew,
+                    monthlyRevinew,
+                    totalProduct,
+                    inventoryMertics
                 };
                 myCache.set("dashboardDataCatche", analyticsData, 600);
                 return res.json(analyticsData)
